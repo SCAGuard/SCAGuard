@@ -1,0 +1,2 @@
+SCAGuard/Analyze filter=lfs diff=lfs merge=lfs -text
+SCAGuard/Detect filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,1036 @@
+import pydotplus
+# from igraph import *
+import re
+import numpy as np
+import json
+import os
+from functools import reduce
+import angr
+from angrutils import *
+from cfgexplorer import cfg_explore
+import paths
+
+from bs4 import BeautifulSoup
+# word_list = """sing sign gins who how dad add""".split()
+#
+key_dict = {}
+def Getindex(elem):
+    return elem[1]["index"]
+#
+# def word2key(search_str):
+#     return ''.join(sorted(search_str))
+
+def search(kw_str):
+    return key_dict.get(kw_str, 'Not Found!')
+#
+# # print(search('gnis'))
+# # print(search('ohw'))
+# # print(search('abc'))
+
+# class Node:
+#     def __init__(self, shape, label, name, cluster,index=-1):
+#         self.shape = shape
+#         self.label = label
+#         self.name = name
+#         self.cluster=cluster
+#         self.index=index
+
+
+all_file_list =[]
+clflush_list=[]
+
+def get_all_filepath(dir):
+    parents = os.listdir(dir)
+    for parent in parents:
+        child = os.path.join(dir,parent)
+        if os.path.isdir(child):
+            get_all_filepath(child)
+            # continue
+        else:
+            suffix = os.path.splitext(child)[1]
+            #print(suffix)
+            if suffix ==".out":
+                all_file_list.append(child)
+
+def Node(index,label,name,table,belongfunc,func,functype,insn,feature,labelx):
+    node={}
+    node["label"]=label
+    node["name"]=name
+    node["index"]=index
+    node["label_parsed"]=table
+    node["belongfunc"]=belongfunc
+    node["func"]=func
+    node["functype"]=functype
+    node["insn"]=insn
+    node["feature"]=feature
+    node["labelx"]=labelx
+    return node
+
+
+def Edge(fromnode, tonode, color,style,flag=-1):
+    edge={}
+    edge["fromnode"] = fromnode
+    edge["tonode"] = tonode
+    edge["color"] = color
+    edge["style"]=style
+    edge["flag"]=flag
+    return edge
+        
+
+
+def bfs(visited, queue, node):
+  main_block=[]
+  visited.append(node)
+  queue.append(node)
+
+  while queue:
+    s = queue.pop(0)
+    # print ("(")
+    # for i in s.predecessors():
+    #     print(i["name"])
+    #     break
+    # print(","+s["name"]+")", end = " ")
+    main_block.append(s)
+    # print(s["name"])
+
+    for neighbour in s.successors():
+      if neighbour not in visited:
+        visited.append(neighbour)
+        queue.append(neighbour)
+
+  return main_block
+
+
+def adj_matrix(new_edgelist,new_index_dict,new_node_dict):
+    reorder={}
+    orderindex=0
+    for key,value in sorted(new_node_dict.items(),key=lambda item:Getindex(item)):
+        reorder[value["index"]]=orderindex
+        orderindex+=1
+
+    matrix=np.zeros((len(new_node_dict),len(new_node_dict)))
+
+    style_dict={}
+    style_index=1
+    for edge in new_edgelist:
+        code=0
+        if edge["color"]+edge["style"] in style_dict:
+            code=style_dict[edge["color"]+edge["style"]]
+        else:
+            style_dict[edge["color"]+edge["style"]]=style_index
+            code=style_index
+            style_index+=1
+            
+        matrix[reorder[edge["fromnode"]],reorder[edge["tonode"]]]=code
+
+    # print(matrix)
+    return matrix
+
+
+def getnode(path):
+        mul=0
+        import networkx as nx
+        from networkx.drawing import nx_pydot
+        # G=nx.Graph(nx_pydot.read_dot(path))
+        G=pydotplus.graphviz.graph_from_dot_file(path)
+        # g = Graph(directed=True)
+
+        edges=G.obj_dict["edges"]
+        nodes=G.obj_dict["nodes"]
+
+        start_main=[]
+        node_dict={}
+        index_dict={}
+
+        edgelist=[]
+        for edge in edges:
+            pt=edges[edge][0]["points"]
+            attr=edges[edge][0]["attributes"]
+            color="black"
+            style="straight"
+            if(len(attr)>0 and "color" in attr):
+                color=attr["color"]
+            if(len(attr)>0 and "style" in attr):
+                style=attr["style"]
+
+            if color=="gray" and style=="dotted":
+                continue
+            edge=Edge(int(pt[0]),int(pt[1]),color,style)
+            # key_dict.setdefault(int(pt[0]), []).append(edge)
+            # g.add_edge(pt[0], pt[1])
+            edgelist.append(edge)
+
+
+        for key in nodes:
+            if(key=="graph" or key=="node"):
+                continue
+            cur_node=nodes[key][0]
+            nodeindex=int(key)
+
+            soup = BeautifulSoup(cur_node["attributes"]["label"],"html.parser")
+            tables = soup.findAll("table")
+            table = tables[0]
+            rows = table.findAll("tr")
+            name=rows[0].findAll('td')[0].contents[0]
+            # for row in rows:
+            #     tds = row.findAll('td')
+            #     if(len(tds)==4):
+            #         countrycode = tds[1].string
+            #         timezone = tds[2].string
+            label=0
+            if(len(tables)==2):
+                table2=tables[1]
+                last_block_index=-1
+                block_index=-1
+                
+                rows=table2.findAll("tr")
+                nodenamelist=[]
+                for rowindex in range(len(rows)):
+                    cur_row=rows[rowindex]
+                    cells=cur_row.findAll('td')
+                    
+                    insn=""
+                    for cellindex in range(len(cells)):
+                        if(len(cells[cellindex].contents)>0):
+                            insn+="".join(cells[cellindex].text.split())
+                            insn+=" "
+                    insn=insn.strip()
+
+                    if(insn.find("clflush")>=0 or insn.find("rdtsc")>=0):
+                        label=1
+                    node=""
+                    nodename=cur_row.text.split(':')[0].strip()[2:]
+                    nodename=trim(nodename)
+                    nodenamelist.append(nodename)
+
+                    if(insn.find("clflush")>=0):
+                        clflush_list.append(nodename)
+                    
+                
+                record_file_path=path.replace(".dot",".txt")
+
+                branch_misses_feature=0.0001
+                cache_misses_feature=0.0001
+                L1_dcache_load_misses_feature=0.0001
+                L1_dcache_loads_feature=0.0001
+                L1_dcache_stores_feature=0.0001
+                L1_icache_load_misses_feature=0.0001
+                LLC_load_misses_feature=0.0001
+                LLC_loads_feature=0.0001
+                LLC_store_misses_feature=0.0001
+                LLC_stores_feature=0.0001
+                branch_load_misses_feature=0.0001
+
+                fo = open(record_file_path, "r+")
+                for line in fo.readlines():                          #依次读取每行  
+                            line = line.strip()                             #去掉每行头尾空白  
+                            
+                            line=' '.join(line.split()).split()
+                            if(line[5] in nodenamelist ):
+                                # feature_index=reorder[name_dict[line[5]]["index"]]
+                                if(line[4].find("branch-misses")>=0):
+                                    branch_misses_feature+=1
+                                if(line[4].find("cache-misses")>=0):
+                                    cache_misses_feature+=1
+                                if(line[4].find("L1-dcache-load-misses")>=0):
+                                    L1_dcache_load_misses_feature+=1
+                                if(line[4].find("L1-dcache-loads")>=0):
+                                    L1_dcache_loads_feature+=1
+
+                                if(line[4].find("L1-dcache-stores")>=0):
+                                    L1_dcache_stores_feature+=1
+                                if(line[4].find("L1-icache-load-misses")>=0):
+                                    L1_icache_load_misses_feature+=1
+                                # if(line[4].find("L1-dcache-load-misses")>=0):
+                                #     L1-dcache-load-misses_feature+=1
+                                if(line[4].find("LLC-load-misses")>=0):
+                                    LLC_load_misses_feature+=1
+
+                                if(line[4].find("LLC-loads")>=0):
+                                    LLC_loads_feature+=1
+                                if(line[4].find("LLC-store-misses")>=0):
+                                    LLC_store_misses_feature+=1
+                                if(line[4].find("LLC-stores")>=0):
+                                    LLC_stores_feature+=1
+                                if(line[4].find("branch-load-misses")>=0):
+                                    branch_load_misses_feature+=1
+                            # break
+                fo.close()
+                feat=[0,0,0,0,0,0,0,0,0,0,0]
+                feat[0]=branch_misses_feature
+                feat[1]=cache_misses_feature
+                feat[2]=L1_dcache_load_misses_feature
+                feat[3]=L1_dcache_loads_feature
+                feat[4]=L1_dcache_stores_feature
+                feat[5]=L1_icache_load_misses_feature
+                feat[6]=LLC_load_misses_feature
+                feat[7]=LLC_loads_feature
+                feat[8]=LLC_store_misses_feature
+                feat[9]=LLC_stores_feature
+                feat[10]=branch_load_misses_feature
+
+                # txt='<TABLE BORDER="0" CELLPADDING="1" ALIGN="LEFT"><TR>'
+                # txt+="<TD>"+str(branch_misses_feature)+"</TD>"
+                # txt+="<TD>:"+str(cache_misses_feature)+"</TD>"
+                # txt+="<TD>:"+str(L1_dcache_load_misses_feature)+"</TD>"
+                # txt+="<TD>:"+str(L1_dcache_loads_feature)+"</TD>"
+                # txt+="<TD>:"+str(L1_dcache_stores_feature)+"</TD>"
+                # txt+="<TD>:"+str(L1_icache_load_misses_feature)+"</TD>"
+                # txt+="<TD>:"+str(LLC_load_misses_feature)+"</TD>"
+                # txt+="<TD>:"+str(LLC_loads_feature)+"</TD>"
+                # txt+="<TD>:"+str(LLC_store_misses_feature)+"</TD>"
+                # txt+="<TD>:"+str(LLC_stores_feature)+"</TD>"
+                # txt+="<TD>:"+str(branch_load_misses_feature)+"</TD>"
+                # txt+="</TR></TABLE>"
+
+                # G.obj_dict["nodes"][key][0]["attributes"]["label"]=G.obj_dict["nodes"][key][0]["attributes"]["label"].replace("<{","<{"+txt+"|")
+
+# index,label,name,table,belongfunc,func,functype,insn,feature,labelx
+            node = Node(nodeindex,cur_node["attributes"]["label"],name,tables,"","","","",feat,label)
+            if(node["name"] in node_dict):
+                for tmp_edge_index in range(len(edgelist)):
+                    if(edgelist[tmp_edge_index]["fromnode"]==nodeindex):
+                        edgelist[tmp_edge_index]["fromnode"]=node_dict[node["name"]]["index"]
+                    if(edgelist[tmp_edge_index]["tonode"]==nodeindex):
+                        edgelist[tmp_edge_index]["tonode"]=node_dict[node["name"]]["index"]
+                # node["name"] +="_"+str(mul)
+                # mul+=1
+            else:
+                node_dict[node["name"]]=node
+                index_dict[nodeindex]=node["name"]
+                nodeindex+=1
+            # g.add_vertices(node["name"])
+            # print(node.name)
+            # if(subgraphs[subgraph][i]["attributes"]["label"]=='"main"'):
+            #     start_main.append(node)
+        
+        #index
+
+        return edgelist,index_dict,node_dict
+
+
+# print(break_addr)
+def trim(s):
+   if len(s) == 0:  # 字符串为空直接返回
+      return ''
+   elif s[0] != '0':  # 首尾不存在空格直接返回
+      return s
+   elif s[0] == '0':  # 字符串头存在空格则截断
+      return trim(s[1:])
+
+
+def splitblock(edgelist,index_dict,node_dict):
+    new_node_dict={}
+    new_index_dict={}
+    new_index=len(index_dict)
+    # node_dict.sort(key=Getindex)
+    
+    for key,value in sorted(node_dict.items(),key=lambda item:Getindex(item)):
+        tables=node_dict[key]["label_parsed"]
+        # print(tables)
+        table1=tables[0]
+        rows=table1.findAll("tr")
+        cells=rows[0].findAll('td')
+        if(len(cells[1].contents)>0):   
+            node_dict[key]["belongfunc"]=str(cells[1].contents[0])
+        if(len(cells[2].contents)>0):
+            node_dict[key]["func"]=str(cells[2].contents[0])
+        if(len(cells[3].contents)>0):
+            node_dict[key]["functype"]=str(cells[3].contents[0])
+
+        if(len(tables)==2):
+            table2=tables[1]
+            last_block_index=-1
+            block_index=-1
+            
+            rows=table2.findAll("tr")
+            for rowindex in range(len(rows)):
+                cur_row=rows[rowindex]
+                cells=cur_row.findAll('td')
+                
+                insn=""
+                for cellindex in range(len(cells)):
+                    if(len(cells[cellindex].contents)>0):
+                        insn+="".join(cells[cellindex].contents[0].split())
+                        insn+=" "
+                insn=insn.strip()
+
+                node=""
+                nodename=cur_row.text.split(':')[0].strip()[2:]
+                nodename="0x"+trim(nodename)
+
+                if rowindex==0:
+                    node=Node(node_dict[key]["index"],"",nodename,"",node_dict[key]["belongfunc"],node_dict[key]["func"],node_dict[key]["functype"],insn)
+                    block_index=node["index"]
+                else:                  
+                    node=Node(new_index,"",nodename,"",node_dict[key]["belongfunc"],node_dict[key]["func"],node_dict[key]["functype"],insn)
+                    new_index+=1
+                
+                
+                if last_block_index>=0:
+                    edge={}
+                    edge["color"]="yellow"
+                    edge["fromnode"]=last_block_index
+                    edge["tonode"]=node["index"]
+                    edge["style"]="straight"
+                    edge["flag"]=1
+                    edgelist.append(edge)
+
+                    if(rowindex==len(rows)-1):   #last row
+                        for edgeindex in range(len(edgelist)):
+                            if(edgelist[edgeindex]["fromnode"]==block_index and edgelist[edgeindex]["flag"]==-1):
+                                edgelist[edgeindex]["fromnode"]=node["index"]
+                                edgelist[edgeindex]["flag"]=1
+
+
+                new_node_dict[nodename]=node
+                new_index_dict[node["index"]]=nodename
+                last_block_index=node["index"]
+        else:
+            node_dict[key]["label_parsed"]=""
+            node_dict[key]["label"]=""
+            new_node_dict[node_dict[key]["name"]]=node_dict[key]
+            new_index_dict[node_dict[key]["index"]]=node_dict[key]["index"]
+
+    return edgelist,new_index_dict,new_node_dict           
+                # print(cells)
+        # for row in rows:
+        #         tds = row.findAll('td')
+        #         if(len(tds)==4):
+        #             countrycode = tds[1].string
+        #             timezone = tds[2].string
+
+
+
+
+all_file_list=[]
+config=[]
+with open("./SCAGuard.conf","r") as f:
+    config=json.load(f)
+i_file_path=config["file_path"]
+i_log_path=config["log_path"]
+i_intelpin_path=config["intelpin_path"]
+i_cache_tool=config["cachetool_path"]
+
+get_all_filepath(i_file_path)
+# print(all_file_list)
+# all_file_list=["/media/william/184A50404A501D36/SCAGuard/fr_spectre1_011.c.out"]
+for path in all_file_list:
+
+    # print(path)
+    # clflush_list=[]
+    # proj = angr.Project(path, load_options={'auto_load_libs':False},
+    #                     use_sim_procedures=True,
+    #                     default_analysis_mode='symbolic')
+
+    # main = proj.loader.main_object.get_symbol("main")
+    # start_state = proj.factory.blank_state(addr=main.rebased_addr)
+    # cfg = proj.analyses.CFGEmulated(context_sensitivity_level=2,fail_fast=True, starts=[main.rebased_addr], initial_state=start_state,keep_state=True,state_add_options=angr.sim_options.refs,normalize=True)
+    # plot_cfg(cfg, path,format="dot", asminst=True, remove_imports=True, remove_path_terminator=True)  
+
+
+    print(path)
+    p = angr.Project(path, load_options={'auto_load_libs': False})
+    cfg = p.analyses.CFGFast()
+    print("生成，正在写入")
+    # res=cfg.get_any_node(proj.entry)
+    # cfg_explore(binary=path,output=path+".dot")
+    plot_cfg(cfg, path,format="dot", asminst=True, remove_imports=True, remove_path_terminator=True)  
+
+
+
+
+    edgelist,index_dict,node_dict=getnode(path+".dot")
+    # edgelist = list(set(edgelist))
+    run_function = lambda x, y: x if y in x else x + [y]
+    edgelist=reduce(run_function, [[], ] + edgelist)
+
+    mapindex={}
+    mapindex_i=0
+    for node in node_dict:
+        mapindex[node_dict[node]["index"]]=mapindex_i
+        mapindex_i+=1
+
+    # new_edgelist,new_index_dict,new_node_dict=splitblock(edgelist,index_dict,node_dict)
+    # matrix=adj_matrix(new_edgelist,new_index_dict,new_node_dict)
+
+    import csv
+    csvFile=open(path+".edges.csv",'w',newline='')
+    try:
+        writer=csv.writer(csvFile)
+        writer.writerow(('id1','id2'))
+        for i in edgelist:
+            writer.writerow((mapindex[i["fromnode"]],mapindex[i["tonode"]]))
+    finally:
+        csvFile.close()
+
+    csvFile=open(path+".features.csv",'w',newline='')
+    try:
+        writer=csv.writer(csvFile)
+        writer.writerow(("node_id","feature_id","value"))
+        for i in node_dict:
+            for j in range(11):
+                writer.writerow((mapindex[node_dict[i]["index"]],j,node_dict[i]["feature"][j]))
+    finally:
+        csvFile.close()
+
+    csvFile=open(path+".target.csv",'w',newline='')
+    try:
+        writer=csv.writer(csvFile)
+        writer.writerow(('node_id','target','node_content'))
+        for i in node_dict:
+            writer.writerow((mapindex[node_dict[i]["index"]],node_dict[i]["labelx"],node_dict[i]["label"]))
+    finally:
+        csvFile.close()
+
+
+##################################################################33
+#dataset
+
+    import csv
+    from bs4 import BeautifulSoup
+    targetlists={}
+    def trim(s):
+        if len(s) == 0:  # 字符串为空直接返回
+            return ''
+        elif s[0] != '0':  # 首尾不存在空格直接返回
+            return s
+        elif s[0] == '0':  # 字符串头存在空格则截断
+            return trim(s[1:])
+
+    with open(path+'.target.csv')as f:
+            f_csv = csv.reader(f)
+            for row in f_csv:
+                # if int(row[1])==1:
+                    # targetlists.append(int(row[0]))
+                    
+                    soup = BeautifulSoup(row[2],"html.parser")
+                    tables = soup.findAll("table")
+                    #table = tables[0]
+                    first=""
+                    final=""
+                    if(len(tables)==0):
+                        continue
+
+                    if(len(tables)==2):
+                        table2=tables[1]
+                        last_block_index=-1
+                        block_index=-1
+                        
+                        rows=table2.findAll("tr")
+                        nodenamelist=[]
+                        for rowindex in range(len(rows)):
+                            cur_row=rows[rowindex]
+                            cells=cur_row.findAll('td')
+                            
+                            insn=""
+                            for cellindex in range(len(cells)):
+                                itemc=cells[cellindex]
+                                while(len(itemc.contents)>0):
+                                    if isinstance(itemc.contents[0],str):
+                                        insn+="".join(itemc.contents[0].split())
+                                        break
+                                    itemc=itemc.contents[0]
+                                    insn+=" "
+                            insn=insn.strip()
+
+                            # if(insn.find("clflush")>=0 or insn.find("rdtsc")>=0 or insn.find("0x6025e0")>=0):
+                            #     label=1
+                            # node=""
+                            nodename=cur_row.text.split(':')[0].strip()[2:]
+                            nodename=trim(nodename)
+                            if rowindex==0:
+                                first="0x"+nodename
+                            if rowindex==len(rows)-1:
+                                final="0x"+nodename
+                            nodenamelist.append(nodename)
+                    else:
+                        table1=tables[0] 
+                        rows=table1.findAll("tr")
+                        rowttt=rows[0].findAll('td')[0].text
+                        first=rowttt
+                        final=rowttt
+
+                        # for rowindex in range(len(rows)):
+                        #     cur_row=rows[rowindex]
+                        #     cells=cur_row.findAll('td')
+                            
+                        #     insn=""
+                        #     for cellindex in range(len(cells)):
+                        #         if(len(cells[cellindex].contents)>0):
+                        #             insn+="".join(cells[cellindex].contents[0].split())
+                        #             insn+=" "
+                        #     insn=insn.strip()
+                    ranges=[]
+                    ranges.append(first)
+                    ranges.append(final)
+
+                    targetlists[int(row[0])]=ranges
+
+
+    dict_reverse={}
+    with open(path+'.edges.csv')as f:
+            f_csv = csv.reader(f)
+            flag=False
+            for row in f_csv:
+                if(not flag):
+                    flag=True
+                    continue
+                dict_reverse[int(row[1])]=int(row[0])
+
+    # lists=[]
+    # max=-1
+    # with open('/mnt/d/WSL/kmeans/features.csv')as f:
+    #         f_csv = csv.reader(f)
+    #         # x=f.readlines()
+    #         for row in f_csv:
+    #             dict_reverse[int()]
+    #             dict_reverse[int(row[1])]=int(row[0]) 
+            
+    lists=[]
+
+    with open(path+'.features.csv')as f:
+            f_csv = csv.reader(f)
+            data = list(f_csv)
+            row_count = len(data)
+            lists=[0 for i in range(int((row_count-1)/11))]
+            flag=False
+
+            for row in data:
+                if(not flag):
+                    flag=True
+                    continue
+                #print(row)
+                lists[int(row[0])]+=float(row[2])
+    # print(lists)
+    # for index in range(len(lists)):
+    #     lists[index]=lists[index]/10
+
+    data=[index for index in range(len(lists)) if lists[index]>200]  #nodeid
+    # print(targetlists)
+    print(data)
+
+    pin="if("
+    # if(  ((int64_t)ip<=0x40069f && (int64_t)ip >=0x400626)||( (int64_t)ip<=0x4006a7 && (int64_t)ip >=0x4006a6 )||(  (int64_t)ip<=0x400784 && (int64_t)ip >=0x40077f ) ||(  (int64_t)ip<=0x4006c7 && (int64_t)ip >=0x4006a8 ) ||(  (int64_t)ip<=0x4006e4 && (int64_t)ip >=0x4006e2 ) ||(  (int64_t)ip<=0x4007b9 && (int64_t)ip >=0x4007b2 ) ||(  (int64_t)ip<=0x400718 && (int64_t)ip >=0x400711 ) ||(  (int64_t)ip<=0x40073e && (int64_t)ip >=0x400737 ) ||(  (int64_t)ip<=0x400733 && (int64_t)ip >=0x40071a )||(  (int64_t)ip<=0x400747 && (int64_t)ip >=0x400740 )||(  (int64_t)ip<=0x4007ac && (int64_t)ip >=0x4007a5 ) ||(  (int64_t)ip<=0x40077a && (int64_t)ip >=0x400755 ) ||(  (int64_t)ip<=0x4007a1 && (int64_t)ip >=0x400786 ) ||(  (int64_t)ip<=0x400a0b && (int64_t)ip >=0x400a02 )||(  (int64_t)ip<=0x4007ae && (int64_t)ip >=0x4007ae ) ||(  (int64_t)ip<=0x4007f5 && (int64_t)ip >=0x4007e6 ) ||(  (int64_t)ip<=0x400842 && (int64_t)ip >=0x400836 ) )
+    flag=""
+    flag1=""
+
+    py="["
+    pyhex=[]
+    nop="["
+
+    for x in data:
+        if flag=="":
+            flag="||"
+            flag1=","
+        else:
+            pin+=flag
+            py+=flag1
+        pin+="((int64_t)ip<="+targetlists[x][1]+ "&& (int64_t)ip >="+targetlists[x][0]+") "
+        py+="("+targetlists[x][0]+","+targetlists[x][1]+")"
+        nop+=targetlists[x][0]+","
+        pyhex.append((hex(int(targetlists[x][0],16)),hex(int(targetlists[x][1],16))))
+        
+    pin+=")"
+    py+="]"
+    nop+="]"
+
+    print(pin)
+    print("\n")
+    print(py)
+    with open(path+".block_nop","w") as f:
+        f.write(nop)
+
+###################################################################
+    bbs_list,bbs=paths.extraction(path,".block_nop")
+    print(bbs_list)
+    print(bbs)
+    str_group="["
+    
+    for item in bbs_list:
+            str_group+=item+","
+    
+    str_group+="]"
+    with open(path+".entire","w") as f:
+        f.write(str_group)
+    
+
+    pin="if("
+    # if(  ((int64_t)ip<=0x40069f && (int64_t)ip >=0x400626)||( (int64_t)ip<=0x4006a7 && (int64_t)ip >=0x4006a6 )||(  (int64_t)ip<=0x400784 && (int64_t)ip >=0x40077f ) ||(  (int64_t)ip<=0x4006c7 && (int64_t)ip >=0x4006a8 ) ||(  (int64_t)ip<=0x4006e4 && (int64_t)ip >=0x4006e2 ) ||(  (int64_t)ip<=0x4007b9 && (int64_t)ip >=0x4007b2 ) ||(  (int64_t)ip<=0x400718 && (int64_t)ip >=0x400711 ) ||(  (int64_t)ip<=0x40073e && (int64_t)ip >=0x400737 ) ||(  (int64_t)ip<=0x400733 && (int64_t)ip >=0x40071a )||(  (int64_t)ip<=0x400747 && (int64_t)ip >=0x400740 )||(  (int64_t)ip<=0x4007ac && (int64_t)ip >=0x4007a5 ) ||(  (int64_t)ip<=0x40077a && (int64_t)ip >=0x400755 ) ||(  (int64_t)ip<=0x4007a1 && (int64_t)ip >=0x400786 ) ||(  (int64_t)ip<=0x400a0b && (int64_t)ip >=0x400a02 )||(  (int64_t)ip<=0x4007ae && (int64_t)ip >=0x4007ae ) ||(  (int64_t)ip<=0x4007f5 && (int64_t)ip >=0x4007e6 ) ||(  (int64_t)ip<=0x400842 && (int64_t)ip >=0x400836 ) )
+    flag=""
+    flag1=""
+
+    py="["
+    pyhex=[]
+    nop="["
+
+    for x in bbs:
+        x=int(x[0])
+        if flag=="":
+            flag="||"
+            flag1=","
+        else:
+            pin+=flag
+            py+=flag1
+        pin+="((int64_t)ip<="+targetlists[x][1]+ "&& (int64_t)ip >="+targetlists[x][0]+") "
+        py+="("+targetlists[x][0]+","+targetlists[x][1]+")"
+        nop+=targetlists[x][0]+","
+        pyhex.append((hex(int(targetlists[x][0],16)),hex(int(targetlists[x][1],16))))
+        
+    pin+=")"
+    py+="]"
+    nop+="]"
+
+
+    print(pin)
+    print("\n")
+    print(py)
+
+    
+    pinbbs="if("
+    # if(  ((int64_t)ip<=0x40069f && (int64_t)ip >=0x400626)||( (int64_t)ip<=0x4006a7 && (int64_t)ip >=0x4006a6 )||(  (int64_t)ip<=0x400784 && (int64_t)ip >=0x40077f ) ||(  (int64_t)ip<=0x4006c7 && (int64_t)ip >=0x4006a8 ) ||(  (int64_t)ip<=0x4006e4 && (int64_t)ip >=0x4006e2 ) ||(  (int64_t)ip<=0x4007b9 && (int64_t)ip >=0x4007b2 ) ||(  (int64_t)ip<=0x400718 && (int64_t)ip >=0x400711 ) ||(  (int64_t)ip<=0x40073e && (int64_t)ip >=0x400737 ) ||(  (int64_t)ip<=0x400733 && (int64_t)ip >=0x40071a )||(  (int64_t)ip<=0x400747 && (int64_t)ip >=0x400740 )||(  (int64_t)ip<=0x4007ac && (int64_t)ip >=0x4007a5 ) ||(  (int64_t)ip<=0x40077a && (int64_t)ip >=0x400755 ) ||(  (int64_t)ip<=0x4007a1 && (int64_t)ip >=0x400786 ) ||(  (int64_t)ip<=0x400a0b && (int64_t)ip >=0x400a02 )||(  (int64_t)ip<=0x4007ae && (int64_t)ip >=0x4007ae ) ||(  (int64_t)ip<=0x4007f5 && (int64_t)ip >=0x4007e6 ) ||(  (int64_t)ip<=0x400842 && (int64_t)ip >=0x400836 ) )
+    flag=""
+
+
+    for x in bbs_list:
+        if flag=="":
+            flag="||"
+        else:
+            pinbbs+=flag
+        pinbbs+="(int64_t)ip=="+x
+        
+    pinbbs+=")"
+
+
+##################################################################33
+#给intel pin 收集数据
+#分发给各个文件，然后进行批处理（节点id与文件序号需要记录）
+    res=""
+    log_base=i_log_path
+
+    split_str="//****************"
+    with open(i_intelpin_path+"/source/tools/ManualExamples/dtrace.cpp", 'r') as fobj:
+        f=fobj.read()
+        res=f.split(split_str)
+        res[1]="\n"+pinbbs+"\n";
+        # print(res)
+
+    with open(i_intelpin_path+"/source/tools/ManualExamples/dtrace.cpp", 'w') as fobj:
+        fobj.write(res[0]+split_str+res[1]+split_str+res[2])
+
+
+
+    split_str="//================"
+    with open(i_intelpin_path+"/source/tools/ManualExamples/dtrace.cpp", 'r') as fobj:
+        f=fobj.read()
+        res=f.split(split_str)
+        res[1]="\n"+pin+"\n";
+        res[3]="\n"+pin+"\n";
+        # print(res)
+
+    with open(i_intelpin_path+"/source/tools/ManualExamples/dtrace.cpp", 'w') as fobj:
+        fobj.write(res[0]+split_str+res[1]+split_str+res[2]+split_str+res[3]+split_str+res[4])
+
+
+    import subprocess
+    subprocess.Popen("cd "+i_intelpin_path+"/source/tools/ManualExamples && ./acompile.sh", shell=True) 
+
+    import subprocess
+
+    # cmd = r"cd /media/william/829E8FC39E8FAE6B/pinrecord/pin-3.13-98189-g60a6ef199-gcc-linux/source/tools/ManualExamples && ./acompile.sh"
+    p = subprocess.Popen(["make"," TARGET=intel64","obj-intel64/dtrace.so"],cwd=i_intelpin_path+"/source/tools/ManualExamples")  # 将输出内容存至缓存中
+    # process_wc.communicate()[0]
+    p.wait()
+    # ./pin -t source/tools/ManualExamples/obj-intel64/dtrace.so -o ./large.log -- ./gcc_base.amd64-m64-gcc42-nn.out ./cccp.i -o cccp
+    # p = subprocess.Popen(["timeout","360","./pin","-t","source/tools/ManualExamples/obj-intel64/dtrace.so","-o",log_base+"log","--",path],cwd="/media/william/829E8FC39E8FAE6B/pinrecord/pin-3.13-98189-g60a6ef199-gcc-linux")  # 将输出内容存至缓存中
+    print(path)
+    p = subprocess.Popen(["timeout","360","./pin","-t","source/tools/ManualExamples/obj-intel64/dtrace.so","-o",log_base+"/log","--",path],cwd=i_intelpin_path)  # 将输出内容存至缓存中
+    p.wait()
+    print("Intel Pin完成")
+
+
+    # p = subprocess.Popen(["timeout","360","./pin","-t","source/tools/ManualExamples/obj-intel64/dtrace.so","-o",log_base+"log","--",path],cwd="/media/william/829E8FC39E8FAE6B/pinrecord/pin-3.13-98189-g60a6ef199-gcc-linux")  # 将输出内容存至缓存中
+    # p.wait()
+
+    ##### group=[(0x4020e0,0x4020e0),(0x402150,0x402150),(0x9000a8,0x9000a8),(0x4023d0,0x4023d0),(0x9001e8,0x9001e8),(0x403222,0x4032a3),(0x403284,0x4032a3),(0x40337e,0x403395),(0x40339b,0x4033aa),(0x4035b0,0x4035bc),(0x4033c9,0x4033e2),(0x4033d9,0x4033e2),(0x4033f5,0x403407),(0x40340d,0x403419),(0x4035c2,0x4035dd),(0x4035df,0x4035fb),(0x4035f3,0x4035fb),(0x406479,0x406498),(0x403980,0x4039a7),(0x403960,0x4039a7),(0x4039a9,0x4039e0),(0x4039e2,0x4039ed),(0x4039ef,0x403a07),(0x403a10,0x403a1e),(0x61b960,0x61b96a),(0x4ce070,0x4ce096),(0x419300,0x419311),(0x440890,0x4408a2),(0x49eab0,0x49eac5),(0x49e9c0,0x49e9d4),(0x4e9cf0,0x4e9d0b),(0x4a2f20,0x4a2f24),(0x5ab590,0x5ab5cb),(0x5abce0,0x5abcf3),(0x4a3830,0x4a385e),(0x473190,0x4731a1),(0x492610,0x492616),(0x6155a0,0x6155b8),(0x492f7d,0x492f96),(0x49c870,0x49c879),(0x49c880,0x49c892),(0x631b00,0x631b09),(0x49eac7,0x49eacf),(0x49eb1a,0x49eb26),(0x49eae4,0x49eae6),(0x49eb2b,0x49eb2f),(0x4ea630,0x4ea640),(0x5db320,0x5db33b),(0x5697e0,0x5697f5),(0x4ea010,0x4ea021),(0x61b0c0,0x61b0d5),(0x631ad0,0x631ae3),(0x4f04ad,0x4f04c2),(0x59d180,0x59d1ac),(0x59d198,0x59d1ac),(0x59d18b,0x59d1ac),(0x59d22e,0x59d254),(0x59d240,0x59d254),(0x59d233,0x59d254),(0x5b2ae0,0x5b2b06),(0x5b4c10,0x5b4c4b),(0x5b4c4d,0x5b4c63),(0x5b4c6d,0x5b4c75),(0x5b4c20,0x5b4c4b),(0x5b4c28,0x5b4c4b),(0x5b4c40,0x5b4c4b),(0x5b4c65,0x5b4c75),(0x5b4c77,0x5b4c7f),(0x5b52a9,0x5b52ce),(0x5ffa00,0x5ffa08),(0x5ffb27,0x5ffb38),(0x5ffb30,0x5ffb38),(0x600a93,0x600a9c),(0x600a9e,0x600ac0),(0x600ac7,0x600ad6),(0x600ad8,0x600af2),(0x600af4,0x600b23),(0x600ae0,0x600af2),(0x600b25,0x600b46),(0x600b4c,0x600b94),(0x600b96,0x600bab),(0x600b58,0x600b94),(0x600bc6,0x600bd8),(0x600be6,0x600bff),(0x600c01,0x600c0a),(0x600c25,0x600c37),(0x600bf5,0x600bff),(0x600c0c,0x600c14),(0x601673,0x60167b),(0x6038bb,0x6038e1),(0x6038d0,0x6038e1),(0x60439f,0x6043c3),(0x6043b4,0x6043c3),(0x631ae8,0x631aeb),(0x631aed,0x631aee),(0x631af7,0x631b09),(0x631b21,0x631b24),(0x631b26,0x631b2c)]
+
+    import os
+    group=pyhex
+    file=[]
+    fileopen=[]
+    import shutil
+    shutil.rmtree(log_base+"/log_distribute",ignore_errors=True)
+    os.mkdir(log_base+"/log_distribute")
+    for i in range(len(group)):
+        file.append(log_base+"/log_distribute/test"+str(i)+".log")
+        fo = open(file[i], "w")
+        fileopen.append(fo)
+
+    tp=open(log_base+"/log_distribute/tp","w")
+    # bbs_list
+    bbs_tp_list=[0 for x in range(0,len(bbs_list))]
+
+    # tplsit={}
+
+    # with open('/mnt/d/WSL/noise/victim10.log',"w") as f1, open('/mnt/d/WSL/noise/victim11.log',"w") as  f2, open('/mnt/d/WSL/noise/victim41.log',"w") as  f3, open('/mnt/d/WSL/noise/victim43.log',"w") as  f4:
+    with open(log_base+'/log') as f:
+            line = f.readline()
+            # print(type(line))
+            while line:
+                # print line,
+                res=line.split(",")
+                if len(res)==3:
+                    tp.write(res[1]+","+res[2])
+                    index=0
+                    for item in bbs_list:
+                        if item==res[1] and bbs_tp_list[index]==0:
+                            bbs_tp_list[index]=res[2]
+                        index+=1
+                else:  
+                    for i in range(len(group)):
+                        if int(res[1],16)>=int(group[i][0],16) and  int(res[1],16)<=int(group[i][1],16):
+                            fileopen[i].write(line)
+
+                line = f.readline()
+
+    for i in range(len(group)):
+        # file.append("/media/william/FCF894F7F894B17E/src1/flushreload"+str(i)+".log")
+        fileopen[i].close()
+    tp.close()
+        # fileopen.append(fo)
+    # f.close()
+
+    str_group="["
+    
+    for item in bbs_tp_list:
+            str_group+=str(item)+","
+    
+    str_group+="]"
+    with open(path+".tp","w") as f:
+        f.write(str_group)
+
+    ###############################
+    # toset
+
+    import os
+
+    all_file_list=[]
+    def get_all_filepathxx(dir):
+        parents = os.listdir(dir)
+        for parent in parents:
+            child = os.path.join(dir,parent)
+            if os.path.isdir(child):
+                # get_all_filepath(child)
+                continue
+            else:
+                suffix = os.path.splitext(child)[1]
+                #print(suffix)
+                if suffix ==".log":
+                    all_file_list.append(child)
+            
+
+    get_all_filepathxx(log_base+"/log_distribute")
+    logs=all_file_list
+
+    for log in logs:
+        print(log)
+        with open(log,"r") as f:
+            fp = open(log+".set","w")
+            line = f.readline()
+            # print(type(line))
+            while line:
+                # print line,
+                res=line.split(",")
+                set_1=int(str(bin(int(res[2], 16))[-18:-12]),2)
+                fp.write(res[1]+","+res[2]+","+str(set_1)+"\n")
+                # print(int(str(bin(int(line, 16))[-12:-6]),2))
+                line = f.readline()
+
+            fp.close()
+    
+    # import os
+
+
+
+######################
+#toexcel
+    # data_matrix=[][]
+    all_file_list=[]
+    def get_all_filepathxy(dir):
+        parents = os.listdir(dir)
+        for parent in parents:
+            child = os.path.join(dir,parent)
+            if os.path.isdir(child):
+                # get_all_filepath(child)
+                continue
+            else:
+                suffix = os.path.splitext(child)[1]
+                #print(suffix)
+                if suffix ==".set":
+                    all_file_list.append(child)
+            
+
+    get_all_filepathxy(log_base+"/log_distribute")
+    sets=all_file_list
+    lists=[]
+    lists=[[] for i in range(len(sets))]
+    index=0
+
+
+    from openpyxl import Workbook
+    wb=Workbook() #新创建Excel
+    ws=wb.active   #打开一个sheet
+    ws.title='new' #改默认sheet的名字为‘new sheet’
+    # for i in range(1,101):
+    #   for j in range(1,101):
+    #     ws.cell(row=i,column=j,value=i*j)
+    data_dict={}
+    for log in sets:
+        print(log)
+        lists[index].append(log.split("/")[-1])
+        ws.cell(row=1,column=index+1,value=log.split("/")[-1])
+        # print(log.split("/")[-1])
+        j=2
+        with open(log,"r") as f:
+            # fp = open(log+".set","w")
+            line = f.readline()
+            # print(type(line))
+            while line:
+                # print line,
+                res=line.split(",")
+                set_1=int(res[2], 16)
+                lists[index].append(set_1)
+                # fp.write(res[1]+","+res[2]+","+str(set_1)+"\n")
+                # print(int(str(bin(int(line, 16))[-12:-6]),2))
+                ws.cell(row=j,column=index+1,value=set_1)
+                line = f.readline()
+                j+=1
+                if j==2001:
+                    break
+            
+            col_index=int(lists[index][0].replace(".log.set","").replace("test",""),10)
+            del lists[index][0]
+            data_dict[col_index]=set(lists[index])
+
+
+                
+        index+=1
+        # break
+
+
+    wb.save(log_base+"/log_distribute/data10000.xls") #保存Excel
+
+
+############
+#toaddr
+    import os
+
+    all_file_list=[]
+    def get_all_filepathxz(dir):
+        parents = os.listdir(dir)
+        for parent in parents:
+            child = os.path.join(dir,parent)
+            if os.path.isdir(child):
+                # get_all_filepath(child)
+                continue
+            else:
+                suffix = os.path.splitext(child)[1]
+                #print(suffix)
+                if suffix ==".log":
+                    all_file_list.append(child)
+            
+
+    get_all_filepathxz(log_base+"/log_distribute")
+    logs=all_file_list
+    for log in logs:
+        print(log)
+        index=0
+        with open(log,"r") as f:
+            fp = open(log+".addr","w")
+            line = f.readline()
+            # print(type(line))
+            while line:
+                # print line,
+                res=line.split(",")
+                set_1=res[2]
+                fp.write(res[0].lower()  +" "+set_1+"\n")
+                # print(int(str(bin(int(line, 16))[-12:-6]),2))
+                line = f.readline()
+                index+=1
+                if index==2001:
+                    break
+
+            fp.close()
+
+############
+###pickup nodes
+    del_index=[]
+
+    for key in data_dict.keys():
+        if len(data_dict[key])<1:
+            del_index.append(key)
+            continue
+        
+        flag=False
+        for key1 in data_dict.keys():
+            if key == key1:
+                continue
+            if len(data_dict[key]&data_dict[key1])>0:
+                flag=True
+                break
+
+            # if not (key1 in data_dict):
+            #     del_index.append(key1)
+        if not flag:
+            del_index.append(key)
+        
+
+    # for i in del_index:
+    #     del data_dict[i]
+    
+
+########################
+# Cache Simulation    
+    pathsx=""
+    for key in data_dict.keys():
+        pathsx+=log_base+"/log_distribute/test"+str(key)+".log.addr\n"
+    # ~/CacheSimTools/build
+    with open(i_cache_tool+"/path.txt","w") as f:
+        f.write(pathsx)
+
+    import subprocess
+    p = subprocess.Popen(["./CacheSim","--input","./"],cwd=i_cache_tool)  # 将输出内容存至缓存中
+    p.wait()
+    print("CacheSim完成")
+
+
+#################
+#obtain
+    import shutil
+
+    src = i_cache_tool+'/cache.sim'
+    dst = path+".cache.sim"
+    shutil.copy(src, dst)
+
+    str_group="["
+    
+    for key in data_dict.keys():
+            str_group+=group[key][0]+","
+    
+    str_group+="]"
+    with open(path+".block","w") as f:
+        f.write(str_group)
+
+
+###############
+    # final=paths.extraction(path,".block")
+    # str_group="["
+    
+    # for item in final:
+    #         str_group+=item+","
+    
+    # str_group+="]"
+    # with open(path+".entire","w") as f:
+    #     f.write(str_group)
+    
+
