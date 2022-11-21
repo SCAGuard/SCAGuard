@@ -1,6 +1,10 @@
+# Table of contents
+* [1. Server Applications](#1-server-applications)
+* [2. Code Mutation](#2-code-mutation)
+* [3. 5 Scenarios in RQ2](#3-5-scenarios-in-rq2)
+* [4. Sample selection in RQ3](#4-sample-selection-in-rq3)
+* [Reference](#reference)
 
-
-[TOC]
 
 # 1. Server Applications 
 
