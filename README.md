@@ -40,11 +40,11 @@ An attack detection approach should not misclassify a benign program as an attac
 ### E1: Classification of mutated-variants. 
 The mutated-variant classification task is to classify mutated variants when some
 of them are known to the defender. The details are as follows:
-- SVM-NW, LR-NW and KNN-MLFM: we perform 10-fold cross validation on 4 attack types (i.e., FR-F, PPF, S-FR and S-PP) and benign programs to obtain the best model with the best parameters.
+- SVM-NW, LR-NW and KNN-MLFM: we perform 10-fold cross validation on 4 attack types (i.e., FR-F, PPF, S-FR and S-PP) and benign programs to obtain the best model with the fine-tuned parameters.
 - SCAGUARD: we randomly choose only 1 PoC for each of 4 attack types for attack behavior modeling. 
 - SCADET: uses its designated rules.
 
-Then, let the trained models, SCAGuard, and SCADET classify the 40×5 samples that randomly chosen from FR-F, PPF, S-FR, S-PP and benign programs (40 samples per type are chosen). 
+Then, let the trained models, SCAGuard, and SCADET classify the 40×5 samples that randomly chosen from FR-F, PPF, S-FR, S-PP and benign programs (40 samples were chosen for each type). 
 
 ### E2: Classification of Spectre-like variants. 
 The Spectre-like variant classification task is to classify spectre-like variants when only their non-spectre-like counterparts are known to the defender. The details are as follows:
@@ -56,28 +56,29 @@ Then, 40 PoCs from each attack type of S-FR and S-PP and 40 benign programs are 
 
 ### E3: Classification of other attack family’s variants (Generalizability). 
 To evaluate the generalizability of SCAGUARD, we consider two sub-tasks. The first one is to classify Prime+Probe Family when only the Flush+Reload Family is known to the defender. The details are as follows:
-- SVM-NW, LR-NW and KNN-MLFM: we randomly choose 360 PoCs for the attack type FR-F and 360 benign programs for training, while 40 PoCs of the attack type PP-F and 40 benign programs are randomly chosen for classification. Note that both SCAGUARD and SCADET also use the same 40 × 2 programs for classification.
+
+- SVM-NW, LR-NW and KNN-MLFM: we use the samples in FR-F and benign programs for training.
 - SCAGUARD: we randomly choose 1 PoC of the attack type FR-F for attack behavior modeling. 
 - SCADET: uses its designated rules.
 
 Then we randomly choose 40 PoCs of the attack type PP-F and 40 benign programs for classification.
 
 The second one is to classify Flush+Reload Family when only Prime+Probe Family is known to the defender. Details are as follows:
-- SVM-NW, LR-NW and KNN-MLFM: we randomly choose 360 PoCs for the attack type PP-F and 360 benign programs for training. We also randomly choose 40 PoCs of the attack type FR-F and 40 benign programs for classification, which are also used for SCAGUARD and SCADET.
+
+- SVM-NW, LR-NW and KNN-MLFM: we use the samples in PP-F and 360 benign programs for training.
 - SCAGUARD: we randomly choose 1 PoC of the attack type PP-F for attack behavior modeling. 
 - SCADET: uses its designated rules.
 
-
-
-
+Similarly, then we randomly choose 40 PoCs of the attack type FR-F and 40 benign programs for classification.
 
 ### E4: Classification of obfuscated variants (Robustness). 
 To evaluate the robustness of SCAGUARD against a powerful attacker who tries to obfuscate an existing PoC in order to bypass the detection approach, for each PoC out of 400 PoCs of the attack type FR-F (resp. PP-F), we generate an obfuscated variant by applying the commonly-used obfuscation technique, polymorphic technique [69], resulting 400×2 new obfuscated variants. These obfuscated variants have, on average, 70.49% more BBs per sample than the original one. Our goal is to detect the obfuscated variants while only their non-obfuscated counterparts are known to the defender.
-- SVM-NW, LR-NW and KNN-MLFM: we randomly choose 360 PoCs for each attack type of FR-F, and PPF, 360 benign programs for training. We also randomly choose 40 obfuscated variants for each attack type of FR-F, and PP-F and 40 benign programs for classification. Those obfuscated variants and benign samples are also used by SCAGUARD and SCADET for classification.
+
+- SVM-NW, LR-NW and KNN-MLFM: we train the model on the FR-F, and PP-F, and benign programs.
 - SCAGUARD: we randomly choose one PoC for each attack type of FR-F and PP-F for attack behavior modeling. 
 - SCADET: uses its designated rules.
 
-
+Then, We also randomly choose 40 obfuscated variants for each attack type of FR-F, and PP-F and 40 benign programs for classification.
 
 # Reference
 
