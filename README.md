@@ -37,7 +37,7 @@ An attack detection approach should not misclassify a benign program as an attac
 
 # 4. Sample selection in RQ3
 
-### E1: Classification of mutated-variants. 
+#### E1: Classification of mutated-variants. 
 The mutated-variant classification task is to classify mutated variants when some
 of them are known to the defender. The details are as follows:
 - SVM-NW, LR-NW and KNN-MLFM: we perform 10-fold cross validation on 4 attack types (i.e., FR-F, PPF, S-FR and S-PP) and benign programs to obtain the best model with the fine-tuned parameters.
@@ -46,7 +46,7 @@ of them are known to the defender. The details are as follows:
 
 Then, let the trained models, SCAGuard, and SCADET classify the 40×5 samples that randomly chosen from FR-F, PPF, S-FR, S-PP and benign programs (40 samples were chosen for each type). 
 
-### E2: Classification of Spectre-like variants. 
+#### E2: Classification of Spectre-like variants. 
 The Spectre-like variant classification task is to classify spectre-like variants when only their non-spectre-like counterparts are known to the defender. The details are as follows:
 - SVM-NW, LR-NW and KNN-MLFM: we train the models with FR-F and PP-F and 360 benign programs to their best performance. 
 - SCAGUARD: we randomly choose only 1 PoC for each attack type of FR-F and PP-F for attack behavior modeling.
@@ -54,7 +54,7 @@ The Spectre-like variant classification task is to classify spectre-like variant
 
 Then, 40 PoCs from each attack type of S-FR and S-PP and 40 benign programs are randomly chosen for classification. 
 
-### E3: Classification of other attack family’s variants (Generalizability). 
+#### E3: Classification of other attack family’s variants (Generalizability). 
 To evaluate the generalizability of SCAGUARD, we consider two sub-tasks. The first one is to classify Prime+Probe Family when only the Flush+Reload Family is known to the defender. The details are as follows:
 
 - SVM-NW, LR-NW and KNN-MLFM: we use the samples in FR-F and benign programs for training.
@@ -71,7 +71,7 @@ The second one is to classify Flush+Reload Family when only Prime+Probe Family i
 
 Similarly, then we randomly choose 40 PoCs of the attack type FR-F and 40 benign programs for classification.
 
-### E4: Classification of obfuscated variants (Robustness). 
+#### E4: Classification of obfuscated variants (Robustness). 
 To evaluate the robustness of SCAGUARD against a powerful attacker who tries to obfuscate an existing PoC in order to bypass the detection approach, for each PoC out of 400 PoCs of the attack type FR-F (resp. PP-F), we generate an obfuscated variant by applying the commonly-used obfuscation technique, polymorphic technique [69], resulting 400×2 new obfuscated variants. These obfuscated variants have, on average, 70.49% more BBs per sample than the original one. Our goal is to detect the obfuscated variants while only their non-obfuscated counterparts are known to the defender.
 
 - SVM-NW, LR-NW and KNN-MLFM: we train the model on the FR-F, and PP-F, and benign programs.
