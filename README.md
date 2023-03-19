@@ -1,8 +1,9 @@
 # Table of contents
+
 * [1. Server Applications](#1-server-applications)
 * [2. Code Mutation](#2-code-mutation)
-* [3. 5 Scenarios in RQ2](#3-5-scenarios-in-rq2)
-* [4. Sample selection in RQ3](#4-sample-selection-in-rq3)
+* [3. 5 Scenarios in Section IV.C](#3-5-scenarios-in-section-iv.c)
+* [4. Sample selection in Section IV.D](#4-sample-selection-in-section-iv.d)
 * [Reference](#reference)
 
 
@@ -26,15 +27,19 @@ To evaluate the effectiveness of SCAGUARD, we consider five different scenarios,
 Attackers can implement the same attack and attack strategy (i.e., vulnerability exploitation) in different ways, leading to dissimilar programs. We randomly choose 2 different implementations from FR-IAIK, FR-Mastik, FR-Nepoche and their mutated variants (cf. Table II) and measure their similarity degree (repeat 300 times). The resulting average similarity score is 94.31%, indicating that SCAGUARD can show that different implementations of the same attack are tightly similar.
 
 #### S2: Different variants of the same attack. 
+
 Attackers may adopt different attack strategies to achieve the same functionality in order to bypass certain defenses. Recall that instead of using the flush instruction in the Flush+Reload attack, the Evict+Reload attack uses another way to evict corresponding cache lines of the chosen memory addresses. To evaluate our approach in this scenario, we randomly choose 1 PoC from FR-IAIK, FR-Mastik, FR-Nepoche, and their variants, and measure its similarity with 1 randomly chosen sample from ER-IAIK and its mutated variants. Those two PoCs respectively implement the Flush+Reload and Evict+Reload attacks. We repeat the above experiment 300 times and calculate their average similarity. The resulting average similarity score produced by SCAGUARD is still very high, i.e., 84.32%, because of similar cache behaviors.
 
 #### S3: Different attacks that exploit the same vulnerability.
+
 There are different attacks all of which exploit the same cache side-channel vulnerability. For instance, the Flush+Reload and Prime+Probe attacks are two different attacks but exploit the vulnerability. To evaluate our approach in this scenario, we randomly choose 1 PoC from FR-IAIK, FR-Mastik, FR-Nepoche and their variants, and then measure its similarity with 1 randomly chosen PoC from PP-IAIK, PP-Jzhang, and their mutated samples (repeat 300 times). The resulting average similarity score is significant, i.e., 74.48%, because they both access the target cache lines and record the access time.
 
 #### S4: Different variants that exploit different vulnerabilities. 
+
 The newly proposed Meltdown and Spectre attacks can leverage traditional cache side-channel attacks. We randomly choose 1 PoC from FR-IAIK, FR-Mastik, FR-Nepoche and their mutated variants, and then measure its similarity with 1 Spectre-like variant randomly chosen from Spectre-FR-Kocher, Spectre-FR-Opsxcq, Spectre-FR-Idea4good, and their mutated variants (repeat 300 times). The resulting average similarity score produced by SCAGUARD is 66.92%, indicating that although the program is largely changed due to the introduction of Spectre, our approach can still show that these two attacks are closely related with each other.
 
 #### S5: The similarity between an attack program and a benign program. 
+
 An attack detection approach should not misclassify a benign program as an attack program. To evaluate our approach, we randomly choose a test case from the benign dataset (cf. Table III) as the benign program and compare its similarity with a randomly chosen PoC from FR-IAIK, FR-Mastik, FR-Nepoche, and their variants (repeat 300 times). It is interesting to see the average similarity score between them is only 15.10%, which is significantly lower than the similarity degrees between attack programs as reported above. 
 
 
@@ -42,8 +47,10 @@ An attack detection approach should not misclassify a benign program as an attac
 # 4. Sample selection in Section IV.D
 
 #### E1: Classification of mutated-variants. 
+
 The mutated-variant classification task is to classify mutated variants when some
 of them are known to the defender. The details are as follows:
+
 - SVM-NW, LR-NW and KNN-MLFM: we perform 10-fold cross validation on 4 attack types (i.e., FR-F, PPF, S-FR and S-PP) and benign programs to obtain the best model with the fine-tuned parameters.
 - SCAGUARD: we randomly choose only 1 PoC for each of 4 attack types for attack behavior modeling. 
 - SCADET: uses its designated rules.
@@ -51,7 +58,9 @@ of them are known to the defender. The details are as follows:
 Then, let the trained models, SCAGuard, and SCADET classify the 40×5 samples that randomly chosen from FR-F, PPF, S-FR, S-PP and benign programs (40 samples were chosen for each type). 
 
 #### E2: Classification of Spectre-like variants. 
+
 The Spectre-like variant classification task is to classify spectre-like variants when only their non-spectre-like counterparts are known to the defender. The details are as follows:
+
 - SVM-NW, LR-NW and KNN-MLFM: we train the models with FR-F and PP-F and 360 benign programs to their best performance. 
 - SCAGUARD: we randomly choose only 1 PoC for each attack type of FR-F and PP-F for attack behavior modeling.
 - SCADET: uses its designated rules.
@@ -59,6 +68,7 @@ The Spectre-like variant classification task is to classify spectre-like variant
 Then, 40 PoCs from each attack type of S-FR and S-PP and 40 benign programs are randomly chosen for classification. 
 
 #### E3: Classification of other attack family’s variants (Generalizability). 
+
 To evaluate the generalizability of SCAGUARD, we consider two sub-tasks. The first one is to classify Prime+Probe Family when only the Flush+Reload Family is known to the defender. The details are as follows:
 
 - SVM-NW, LR-NW and KNN-MLFM: we use the samples in FR-F and benign programs for training.
@@ -76,6 +86,7 @@ The second one is to classify Flush+Reload Family when only Prime+Probe Family i
 Similarly, then we randomly choose 40 PoCs of the attack type FR-F and 40 benign programs for classification.
 
 #### E4: Classification of obfuscated variants (Robustness). 
+
 To evaluate the robustness of SCAGUARD against a powerful attacker who tries to obfuscate an existing PoC in order to bypass the detection approach, for each PoC out of 400 PoCs of the attack type FR-F (resp. PP-F), we generate an obfuscated variant by applying the commonly-used obfuscation technique, polymorphic technique [69], resulting 400×2 new obfuscated variants. These obfuscated variants have, on average, 70.49% more BBs per sample than the original one. Our goal is to detect the obfuscated variants while only their non-obfuscated counterparts are known to the defender.
 
 - SVM-NW, LR-NW and KNN-MLFM: we train the model on the FR-F, and PP-F, and benign programs.
