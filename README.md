@@ -17,7 +17,7 @@ Following the recent works [M-P], we conduct the mutation technique to expand th
 
 
 
-# 3. 5 Scenarios in RQ2
+# 3. 5 Scenarios in Section IV.C
 
 To evaluate the effectiveness of SCAGUARD, we consider five different scenarios, as summarized in Table V.
 
@@ -39,7 +39,7 @@ An attack detection approach should not misclassify a benign program as an attac
 
 
 
-# 4. Sample selection in RQ3
+# 4. Sample selection in Section IV.D
 
 #### E1: Classification of mutated-variants. 
 The mutated-variant classification task is to classify mutated variants when some
